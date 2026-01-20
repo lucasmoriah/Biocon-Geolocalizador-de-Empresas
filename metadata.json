@@ -1,0 +1,5 @@
+{
+  "name": "Biocon Geolocalizador",
+  "description": "A logistics and location management SaaS dashboard featuring a detailed map of Brazil, spreadsheet-like data management, CEP integration, and AI-powered data generation.",
+  "requestFramePermissions": []
+}
