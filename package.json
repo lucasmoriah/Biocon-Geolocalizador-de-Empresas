@@ -9,12 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "^19.2.3",
-    "react": "^19.2.3",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "leaflet": "1.9.4",
+    "react-leaflet": "4.2.1",
+    "lucide-react": "0.344.0",
     "@google/genai": "^1.37.0",
-    "lucide-react": "^0.562.0",
-    "react-leaflet": "^5.0.0",
-    "leaflet": "^1.9.4"
+    "@supabase/supabase-js": "2.39.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

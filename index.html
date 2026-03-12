@@ -11,6 +11,10 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
+    <!-- Marker Cluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    
     <script>
       tailwind.config = {
         theme: {
@@ -45,17 +49,31 @@
       .custom-scrollbar::-webkit-scrollbar-thumb:hover {
         background: #94a3b8;
       }
+      
+      /* Cluster Customization */
+      .marker-cluster-small { background-color: rgba(181, 226, 140, 0.6); }
+      .marker-cluster-small div { background-color: rgba(110, 204, 57, 0.6); }
+      .marker-cluster-medium { background-color: rgba(241, 211, 87, 0.6); }
+      .marker-cluster-medium div { background-color: rgba(240, 194, 12, 0.6); }
+      .marker-cluster-large { background-color: rgba(253, 156, 115, 0.6); }
+      .marker-cluster-large div { background-color: rgba(241, 128, 23, 0.6); }
+      .marker-cluster { background-clip: padding-box; border-radius: 20px; }
+      .marker-cluster div { width: 30px; height: 30px; margin-left: 5px; margin-top: 5px; text-align: center; border-radius: 15px; font: 12px "Helvetica Neue", Arial, Helvetica, sans-serif; }
+      .marker-cluster span { line-height: 30px; }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
+    "react": "https://esm.sh/react@18.2.0",
+    "react/": "https://esm.sh/react@18.2.0/",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+    "leaflet": "https://esm.sh/leaflet@1.9.4",
+    "react-leaflet": "https://esm.sh/react-leaflet@4.2.1?deps=leaflet@1.9.4,react@18.2.0,react-dom@18.2.0",
+    "react-leaflet-cluster": "https://esm.sh/@changey/react-leaflet-markercluster@4.0.0-rc1?deps=leaflet@1.9.4,react@18.2.0,react-dom@18.2.0,react-leaflet@4.2.1",
+    "lucide-react": "https://esm.sh/lucide-react@0.344.0",
     "@google/genai": "https://esm.sh/@google/genai@^1.37.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "react-leaflet": "https://esm.sh/react-leaflet@^5.0.0",
-    "leaflet": "https://esm.sh/leaflet@^1.9.4"
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.3"
   }
 }
 </script>

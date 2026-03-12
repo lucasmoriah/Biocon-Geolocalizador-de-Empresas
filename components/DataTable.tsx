@@ -1,285 +1,328 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { LocationEntry } from '../types';
-import { Trash2, MapPin, Search, Edit2, Save, X, GripVertical } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { UnifiedEntry, EntityType, ESTADOS_BRASIL } from '../types';
+import { Trash2, Edit, MapPin, Save, Search, Eraser, CheckCircle } from 'lucide-react';
 
 interface DataTableProps {
-  entries: LocationEntry[];
-  onUpdate: (id: string, field: keyof LocationEntry, value: string | number) => void;
-  onRemove: (id: string) => void;
-  onCepBlur: (id: string, cep: string) => void;
-  onEdit: (entry: LocationEntry) => void;
+  entries: UnifiedEntry[];
+  onSave: (entry: UnifiedEntry, isUpdate: boolean) => Promise<void>;
+  onDelete: (id: string) => void;
+  onCepBlur: (cep: string) => Promise<{ lat: string; lng: string; uf: string } | null>;
 }
 
-const RADIUS_OPTIONS = [
-    { value: 0, label: 'Sem área', color: 'text-gray-500', bg: 'bg-gray-100', dot: '#6b7280' },
-    { value: 50, label: '50 km', color: 'text-green-700', bg: 'bg-green-50', dot: '#22c55e' },
-    { value: 100, label: '100 km', color: 'text-blue-700', bg: 'bg-blue-50', dot: '#3b82f6' },
-    { value: 150, label: '150 km', color: 'text-yellow-700', bg: 'bg-yellow-50', dot: '#eab308' },
-    { value: 300, label: '300 km', color: 'text-red-700', bg: 'bg-red-50', dot: '#ef4444' },
-];
+const INITIAL_FORM: UnifiedEntry = {
+    id: '',
+    type: 'aterros',
+    nome: '',
+    detalhe: '',
+    contato: '',
+    cep: '',
+    estado: '',
+    latitude: '',
+    longitude: '',
+    radius: 0
+};
 
-export const DataTable: React.FC<DataTableProps> = ({ entries, onUpdate, onRemove, onCepBlur, onEdit }) => {
-  const [savedRows, setSavedRows] = useState<Set<string>>(new Set());
+export const DataTable: React.FC<DataTableProps> = ({ entries, onSave, onDelete, onCepBlur }) => {
+  // State for the Form
+  const [formData, setFormData] = useState<UnifiedEntry>(INITIAL_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
   
-  // Column width state
-  const [columnWidths, setColumnWidths] = useState({
-      name: 200,
-      type: 150,
-      cep: 120,
-      location: 180,
-      radius: 180,
-      actions: 120
-  });
+  // State for Search
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const [resizing, setResizing] = useState<{ col: keyof typeof columnWidths, startX: number, startWidth: number } | null>(null);
-
-  const handleSave = (id: string) => {
-    setSavedRows(prev => new Set(prev).add(id));
-    setTimeout(() => {
-        setSavedRows(prev => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-        });
-    }, 2000);
+  // Handle Input Changes
+  const handleInputChange = (field: keyof UnifiedEntry, value: string | number) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleDelete = (id: string) => {
-      if (window.confirm("Tem certeza que deseja excluir esta empresa?")) {
-          onRemove(id);
-      }
-  };
-
-  // Resizing logic
-  const startResize = (e: React.MouseEvent, col: keyof typeof columnWidths) => {
-      e.preventDefault();
-      setResizing({ col, startX: e.clientX, startWidth: columnWidths[col] });
-  };
-
-  useEffect(() => {
-      const handleMouseMove = (e: MouseEvent) => {
-          if (resizing) {
-              const diff = e.clientX - resizing.startX;
-              setColumnWidths(prev => ({
+  // Handle CEP Blur to auto-fill
+  const handleCep = async () => {
+      if (formData.cep.length >= 8) {
+          const data = await onCepBlur(formData.cep);
+          if (data) {
+              setFormData(prev => ({
                   ...prev,
-                  [resizing.col]: Math.max(50, resizing.startWidth + diff)
+                  latitude: data.lat,
+                  longitude: data.lng,
+                  estado: data.uf
               }));
           }
-      };
+      }
+  };
 
-      const handleMouseUp = () => {
-          setResizing(null);
-      };
+  // Function to Load Record into Form (Edit Mode)
+  const handleEdit = (entry: UnifiedEntry) => {
+      setFormData({ ...entry });
+      setEditingId(entry.id);
+      
+      // Scroll to top to show form
+      const formElement = document.getElementById('management-form');
+      if (formElement) formElement.scrollIntoView({ behavior: 'smooth' });
+  };
 
-      if (resizing) {
-          document.addEventListener('mousemove', handleMouseMove);
-          document.addEventListener('mouseup', handleMouseUp);
+  // Function to Reset Form
+  const handleReset = () => {
+      setFormData(INITIAL_FORM);
+      setEditingId(null);
+  };
+
+  // Submit Handler
+  const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      
+      if (!formData.nome || !formData.type) {
+          alert("Por favor, preencha o nome e o tipo.");
+          return;
       }
 
-      return () => {
-          document.removeEventListener('mousemove', handleMouseMove);
-          document.removeEventListener('mouseup', handleMouseUp);
-      };
-  }, [resizing]);
+      // Logic: If editingId exists -> Update, Else -> Create
+      const isUpdate = !!editingId;
+      
+      await onSave(formData, isUpdate);
+      handleReset();
+  };
 
-  const ResizeHandle = ({ col }: { col: keyof typeof columnWidths }) => (
-      <div 
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-400 group-hover:bg-brand-200 z-20 flex items-center justify-center opacity-0 hover:opacity-100 group-hover:opacity-50 transition-opacity"
-          onMouseDown={(e) => startResize(e, col)}
-      >
-          <div className="w-0.5 h-full bg-transparent"></div>
-      </div>
+  // Delete Handler with Confirmation
+  const handleDeleteClick = (id: string) => {
+      const confirmDelete = window.confirm("Tem certeza que deseja excluir este registro permanentemente?");
+      if (confirmDelete) {
+          onDelete(id);
+      }
+  };
+
+  // Filter Entries
+  const filteredEntries = entries.filter(e => 
+      e.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      e.detalhe.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
-    <div className="w-full h-full flex flex-col bg-white">
-      <div className="flex-1 overflow-auto custom-scrollbar">
-        <table className="text-sm text-left text-gray-500 border-collapse table-fixed" style={{ minWidth: '100%' }}>
-            <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10 shadow-sm">
-            <tr>
-                <th scope="col" className="px-4 py-3 border-b border-r border-gray-200 relative group" style={{ width: columnWidths.name }}>
-                    Empresa
-                    <ResizeHandle col="name" />
-                </th>
-                <th scope="col" className="px-4 py-3 border-b border-r border-gray-200 relative group" style={{ width: columnWidths.type }}>
-                    Tipo
-                    <ResizeHandle col="type" />
-                </th>
-                <th scope="col" className="px-4 py-3 border-b border-r border-gray-200 relative group" style={{ width: columnWidths.cep }}>
-                    CEP
-                    <ResizeHandle col="cep" />
-                </th>
-                <th scope="col" className="px-4 py-3 border-b border-r border-gray-200 relative group" style={{ width: columnWidths.location }}>
-                    Localização
-                    <ResizeHandle col="location" />
-                </th>
-                <th scope="col" className="px-4 py-3 border-b border-r border-gray-200 relative group" style={{ width: columnWidths.radius }}>
-                    Raio de Atuação
-                    <ResizeHandle col="radius" />
-                </th>
-                <th scope="col" className="px-4 py-3 border-b border-gray-200 text-center relative group" style={{ width: columnWidths.actions }}>
-                    Ações
-                    <ResizeHandle col="actions" />
-                </th>
-            </tr>
-            </thead>
-            <tbody>
-            {entries.length === 0 ? (
-                <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-gray-400">
-                        <div className="flex flex-col items-center justify-center gap-3">
-                            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
-                                <MapPin size={24} className="opacity-50" />
-                            </div>
-                            <p className="font-medium">Nenhuma empresa cadastrada</p>
-                            <p className="text-xs max-w-[200px]">Adicione uma nova empresa para começar a gerenciar sua logística.</p>
-                        </div>
-                    </td>
-                </tr>
-            ) : (
-                entries.map((entry) => {
-                    const preset = RADIUS_OPTIONS.find(r => r.value === entry.radius);
-                    const isCustom = !preset && entry.radius > 0;
-                    const isSaved = savedRows.has(entry.id);
+    <div className="w-full h-full flex flex-col bg-gray-50">
+      
+      {/* 1. FORM SECTION */}
+      <div id="management-form" className="bg-white border-b border-gray-200 p-6 shadow-sm z-10">
+          <div className="max-w-6xl mx-auto">
+            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                {editingId ? <Edit size={20} className="text-brand-600"/> : <CheckCircle size={20} className="text-green-600"/>}
+                {editingId ? 'Editar Registro' : 'Novo Registro'}
+            </h3>
+            
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                
+                {/* Tipo */}
+                <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Tipo</label>
+                    <select 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm bg-white text-gray-900"
+                        value={formData.type}
+                        onChange={e => handleInputChange('type', e.target.value)}
+                    >
+                        <option value="aterros">Aterro / Polo</option>
+                        <option value="clientes">Cliente</option>
+                        <option value="tecnicos">Técnico</option>
+                    </select>
+                </div>
+
+                {/* Nome */}
+                <div className="md:col-span-4">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        {formData.type === 'clientes' ? 'Razão Social' : 'Nome'}
+                    </label>
+                    <input 
+                        type="text"
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 text-sm bg-white text-gray-900"
+                        placeholder="Nome principal"
+                        value={formData.nome}
+                        onChange={e => handleInputChange('nome', e.target.value)}
+                        required
+                    />
+                </div>
+
+                {/* Detalhe */}
+                <div className="md:col-span-3">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        {formData.type === 'clientes' ? 'CNPJ' : formData.type === 'tecnicos' ? 'Especialidade' : 'Localização'}
+                    </label>
+                    <input 
+                        type="text"
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 text-sm bg-white text-gray-900"
+                        value={formData.detalhe}
+                        onChange={e => handleInputChange('detalhe', e.target.value)}
+                    />
+                </div>
+
+                {/* Contato */}
+                <div className="md:col-span-3">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Contato</label>
+                    <input 
+                        type="text"
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 text-sm bg-white text-gray-900"
+                        placeholder="Tel / Email"
+                        value={formData.contato}
+                        onChange={e => handleInputChange('contato', e.target.value)}
+                    />
+                </div>
+
+                {/* CEP */}
+                <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">CEP</label>
+                    <input 
+                        type="text"
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 text-sm font-mono bg-white text-gray-900"
+                        placeholder="00000-000"
+                        value={formData.cep}
+                        onChange={e => handleInputChange('cep', e.target.value)}
+                        onBlur={handleCep}
+                    />
+                </div>
+
+                {/* Estado */}
+                <div className="md:col-span-1">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">UF</label>
+                    <select 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 text-sm bg-white text-gray-900"
+                        value={formData.estado}
+                        onChange={e => handleInputChange('estado', e.target.value)}
+                    >
+                        <option value="">--</option>
+                        {ESTADOS_BRASIL.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                    </select>
+                </div>
+
+                {/* Lat/Lng */}
+                <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Latitude</label>
+                    <input className="w-full p-2 border border-gray-300 rounded text-xs bg-white text-gray-900" value={formData.latitude} onChange={e => handleInputChange('latitude', e.target.value)} />
+                </div>
+                <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Longitude</label>
+                    <input className="w-full p-2 border border-gray-300 rounded text-xs bg-white text-gray-900" value={formData.longitude} onChange={e => handleInputChange('longitude', e.target.value)} />
+                </div>
+
+                 {/* Raio */}
+                 <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Raio de Atuação</label>
+                    <select 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 text-sm bg-white text-gray-900"
+                        value={formData.radius}
+                        onChange={e => handleInputChange('radius', Number(e.target.value))}
+                    >
+                        <option value={0}>Sem área</option>
+                        <option value={50}>50 km</option>
+                        <option value={100}>100 km</option>
+                        <option value={150}>150 km</option>
+                        <option value={300}>300 km</option>
+                    </select>
+                </div>
+
+                {/* Actions Form */}
+                <div className="md:col-span-3 flex items-end gap-2">
+                    <button 
+                        type="submit" 
+                        className={`flex-1 py-2 px-4 rounded text-white font-medium shadow-sm transition-colors flex items-center justify-center gap-2 ${editingId ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-green-600 hover:bg-green-700'}`}
+                    >
+                        {editingId ? <Save size={18} /> : <CheckCircle size={18} />}
+                        {editingId ? 'Atualizar Dados' : 'Salvar Registro'}
+                    </button>
                     
-                    return (
-                    <tr key={entry.id} className="bg-white border-b hover:bg-gray-50 transition-colors group">
-                        {/* Company Name */}
-                        <td className="p-0 border-r border-gray-100 overflow-hidden">
-                            <input
-                                type="text"
-                                className="w-full h-full px-4 py-3 bg-transparent border-none focus:ring-inset focus:ring-2 focus:ring-brand-500 text-gray-900 font-medium placeholder-gray-300 truncate"
-                                placeholder="Nome da empresa"
-                                value={entry.name}
-                                onChange={(e) => onUpdate(entry.id, 'name', e.target.value)}
-                            />
-                        </td>
-                        
-                        {/* Type */}
-                        <td className="p-0 border-r border-gray-100 overflow-hidden">
-                             <input
-                                type="text"
-                                className="w-full h-full px-4 py-3 bg-transparent border-none focus:ring-inset focus:ring-2 focus:ring-brand-500 text-gray-700 placeholder-gray-300 truncate"
-                                placeholder="Ex: Varejo, CD..."
-                                value={entry.companyType}
-                                onChange={(e) => onUpdate(entry.id, 'companyType', e.target.value)}
-                            />
-                        </td>
+                    {editingId && (
+                        <button 
+                            type="button"
+                            onClick={handleReset}
+                            className="py-2 px-3 bg-gray-200 text-gray-600 rounded hover:bg-gray-300 font-medium"
+                            title="Cancelar Edição"
+                        >
+                            <Eraser size={18} />
+                        </button>
+                    )}
+                </div>
 
-                        {/* CEP */}
-                        <td className="p-0 border-r border-gray-100 relative overflow-hidden">
-                            <input
-                                type="text"
-                                maxLength={9}
-                                className={`w-full h-full px-4 py-3 bg-transparent border-none focus:ring-inset focus:ring-2 focus:ring-brand-500 font-mono text-xs ${entry.isAutoFilled ? 'text-green-700 font-semibold' : 'text-gray-600'}`}
-                                placeholder="00000-000"
-                                value={entry.cep}
-                                onChange={(e) => onUpdate(entry.id, 'cep', e.target.value)}
-                                onBlur={(e) => onCepBlur(entry.id, e.target.value)}
-                            />
-                        </td>
+            </form>
+          </div>
+      </div>
 
-                        {/* Lat / Long */}
-                        <td className="p-2 border-r border-gray-100 overflow-hidden">
-                            <div className="flex gap-2">
-                                <input
-                                    type="number"
-                                    className="w-1/2 bg-gray-50 border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-brand-500 focus:outline-none font-mono text-[10px]"
-                                    placeholder="Lat"
-                                    value={entry.latitude}
-                                    onChange={(e) => onUpdate(entry.id, 'latitude', e.target.value)}
-                                />
-                                <input
-                                    type="number"
-                                    className="w-1/2 bg-gray-50 border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-brand-500 focus:outline-none font-mono text-[10px]"
-                                    placeholder="Long"
-                                    value={entry.longitude}
-                                    onChange={(e) => onUpdate(entry.id, 'longitude', e.target.value)}
-                                />
-                            </div>
-                        </td>
+      {/* 2. LIST SECTION */}
+      <div className="flex-1 overflow-auto p-6 custom-scrollbar">
+        <div className="max-w-6xl mx-auto">
+            
+            {/* Search Bar */}
+            <div className="mb-4 flex items-center bg-white p-2 rounded-lg border border-gray-200 shadow-sm w-full md:w-1/3">
+                <Search className="text-gray-400 ml-2" size={20} />
+                <input 
+                    className="w-full p-1 ml-2 outline-none text-sm text-gray-900 bg-transparent"
+                    placeholder="Buscar na lista..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                />
+            </div>
 
-                        {/* Radius Selector */}
-                        <td className="p-2 border-r border-gray-100 overflow-hidden">
-                            {isCustom ? (
-                                <div className="flex items-center gap-2">
-                                    <div className="flex-1 relative">
-                                        <input 
-                                            type="number" 
-                                            autoFocus
-                                            className="w-full bg-purple-50 border border-purple-200 text-purple-700 rounded pl-2 pr-6 py-1.5 focus:ring-2 focus:ring-purple-500 focus:outline-none text-xs font-semibold"
-                                            value={entry.radius}
-                                            onChange={(e) => onUpdate(entry.id, 'radius', Number(e.target.value))}
-                                        />
-                                        <span className="absolute right-2 top-1.5 text-[10px] text-purple-400">km</span>
+            {/* Table */}
+            <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm text-left text-gray-500">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                        <tr>
+                            <th className="px-6 py-3">Tipo</th>
+                            <th className="px-6 py-3">Nome</th>
+                            <th className="px-6 py-3">UF</th>
+                            <th className="px-6 py-3">Detalhes</th>
+                            <th className="px-6 py-3 text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {filteredEntries.length === 0 ? (
+                             <tr>
+                                <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                                    <div className="flex flex-col items-center justify-center gap-2">
+                                        <MapPin size={32} className="opacity-20" />
+                                        <span>Nenhum registro encontrado.</span>
                                     </div>
-                                    <button 
-                                        onClick={() => onUpdate(entry.id, 'radius', 0)}
-                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded"
-                                        title="Cancelar personalizado"
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                </div>
-                            ) : (
-                                <select 
-                                    className={`w-full px-2 py-1.5 border rounded text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500
-                                        ${preset ? preset.bg : 'bg-white'} 
-                                        ${preset ? preset.color : 'text-gray-700'} 
-                                        ${preset ? `border-${preset.color.split('-')[1]}-200` : 'border-gray-200'}
-                                    `}
-                                    value={entry.radius}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === 'custom') {
-                                            onUpdate(entry.id, 'radius', 10);
-                                        } else {
-                                            onUpdate(entry.id, 'radius', Number(val));
-                                        }
-                                    }}
-                                >
-                                    {RADIUS_OPTIONS.map(opt => (
-                                        <option key={opt.value} value={opt.value} className="bg-white text-gray-900">
-                                            {opt.label}
-                                        </option>
-                                    ))}
-                                    <option value="custom" className="text-purple-600 font-semibold">🟣 Personalizado...</option>
-                                </select>
-                            )}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="p-2 text-center overflow-hidden">
-                            <div className="flex items-center justify-center gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                    onClick={() => onEdit(entry)}
-                                    className="p-1.5 text-gray-500 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
-                                    title="Editar detalhes"
-                                >
-                                    <Edit2 size={16} />
-                                </button>
-                                <button
-                                    onClick={() => handleSave(entry.id)}
-                                    className={`p-1.5 rounded transition-colors ${isSaved ? 'text-green-600 bg-green-50' : 'text-gray-500 hover:text-brand-600 hover:bg-brand-50'}`}
-                                    title="Salvar alterações"
-                                >
-                                    <Save size={16} />
-                                </button>
-                                <button
-                                    onClick={() => handleDelete(entry.id)}
-                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                    title="Excluir"
-                                >
-                                    <Trash2 size={16} />
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                    );
-                })
-            )}
-            </tbody>
-        </table>
+                                </td>
+                            </tr>
+                        ) : (
+                            filteredEntries.map(entry => (
+                                <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4">
+                                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase ${
+                                            entry.type === 'aterros' ? 'bg-gray-100 text-gray-600' :
+                                            entry.type === 'clientes' ? 'bg-green-100 text-green-700' :
+                                            'bg-orange-100 text-orange-700'
+                                        }`}>
+                                            {entry.type}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 font-medium text-gray-900">{entry.nome}</td>
+                                    <td className="px-6 py-4">{entry.estado}</td>
+                                    <td className="px-6 py-4 text-xs">
+                                        <div className="flex flex-col">
+                                            <span>{entry.detalhe}</span>
+                                            <span className="text-gray-400">{entry.cep}</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="flex items-center justify-end gap-2">
+                                            <button 
+                                                onClick={() => handleEdit(entry)}
+                                                className="p-2 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors"
+                                                title="Editar"
+                                            >
+                                                <Edit size={16} />
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDeleteClick(entry.id)}
+                                                className="p-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors"
+                                                title="Excluir"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
       </div>
     </div>
   );

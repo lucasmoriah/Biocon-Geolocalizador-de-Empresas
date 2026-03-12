@@ -1,83 +1,105 @@
-import React, { useState } from 'react';
-import { Plus, Map as MapIcon, Table2, Settings2, X, MapPin } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Map as MapIcon, Table2, Settings2, X, Loader2 } from 'lucide-react';
 import { MapView } from './components/MapView';
 import { DataTable } from './components/DataTable';
-import { LocationEntry } from './types';
+import { UnifiedEntry, LocationEntry, ESTADOS_BRASIL } from './types'; 
 import { fetchCepData } from './services/cepService';
+import { locationService } from './services/locationService';
 
 const App: React.FC = () => {
-  const [entries, setEntries] = useState<LocationEntry[]>([]);
+  const [unifiedEntries, setUnifiedEntries] = useState<UnifiedEntry[]>([]);
   const [isManagerOpen, setIsManagerOpen] = useState(false);
-  
-  // Modal State
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [currentEditLocation, setCurrentEditLocation] = useState<LocationEntry | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleAddEntry = () => {
-    const newEntry: LocationEntry = {
-      id: crypto.randomUUID(),
-      name: '',
-      companyType: '',
-      description: '',
-      cep: '',
-      latitude: '',
-      longitude: '',
-      radius: 0,
-    };
-    setEntries(prev => [...prev, newEntry]);
-  };
+  // Carregar dados iniciais
+  useEffect(() => {
+    loadAllData();
+  }, []);
 
-  const handleUpdateEntry = (id: string, field: keyof LocationEntry, value: string | number) => {
-    setEntries(prev => prev.map(entry => 
-      entry.id === id ? { ...entry, [field]: value } : entry
-    ));
-    
-    // Update local modal state if open
-    if (currentEditLocation && currentEditLocation.id === id) {
-        setCurrentEditLocation(prev => prev ? ({ ...prev, [field]: value }) : null);
+  const loadAllData = async () => {
+    setLoading(true);
+    try {
+        const data = await locationService.getAll();
+        setUnifiedEntries(data);
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setLoading(false);
     }
   };
 
-  const handleRemoveEntry = (id: string) => {
-    setEntries(prev => prev.filter(entry => entry.id !== id));
+  // Esta função gerencia se é insert ou update
+  const handleSaveOrUpdate = async (entry: UnifiedEntry, isUpdate: boolean) => {
+      setLoading(true);
+      try {
+          if (isUpdate) {
+              // Lógica de Atualização
+              await locationService.update(entry.id, entry);
+          } else {
+              // Lógica de Inserção
+              await locationService.create(entry);
+          }
+          // Recarrega tudo para garantir sincronia com BD
+          await loadAllData();
+      } catch (e) {
+          alert("Erro ao salvar operação.");
+          console.error(e);
+          setLoading(false);
+      }
   };
 
-  const handleCepBlur = async (id: string, cep: string) => {
-    if (!cep || cep.length < 8) return;
+  const handleRemoveEntry = async (id: string) => {
+      // Confirmação já foi feita no componente DataTable
+      setLoading(true);
+      try {
+          await locationService.delete(id);
+          setUnifiedEntries(prev => prev.filter(e => e.id !== id));
+      } catch (e) {
+          alert("Erro ao excluir do banco");
+          loadAllData(); // Reverte em caso de erro
+      } finally {
+          setLoading(false);
+      }
+  };
 
+  const handleCepLookup = async (cep: string) => {
     const data = await fetchCepData(cep);
-
     if (data) {
-      const lat = data.location?.coordinates?.latitude || '';
-      const lng = data.location?.coordinates?.longitude || '';
-      
-      setEntries(prev => prev.map(entry => {
-        if (entry.id === id) {
-            // Only update fields if they are empty or auto-update is desired
-            const autoDesc = `${data.street || ''}, ${data.neighborhood || ''} - ${data.city}/${data.state}`;
-            
-            return {
-            ...entry,
-            latitude: lat || entry.latitude,
-            longitude: lng || entry.longitude,
-            description: entry.description || autoDesc,
-            isAutoFilled: !!lat
-          };
-        }
-        return entry;
-      }));
+        const lat = data.location?.coordinates?.latitude || '';
+        const lng = data.location?.coordinates?.longitude || '';
+        const estado = data.state || '';
+        
+        // Verifica se estado é valido
+        const validState = estado && ESTADOS_BRASIL.includes(estado) ? estado : '';
+        return { lat: String(lat), lng: String(lng), uf: validState };
     }
+    return null;
   };
 
-  const openEditModal = (entry: LocationEntry) => {
-    setCurrentEditLocation(entry);
-    setIsEditModalOpen(true);
-  };
+  // Mapeamento para visualização no Mapa
+  const mapLocations: LocationEntry[] = useMemo(() => {
+      return unifiedEntries.map(e => ({
+          id: e.id,
+          name: e.nome,
+          description: e.detalhe,
+          cep: e.cep,
+          estado: e.estado,
+          latitude: e.latitude,
+          longitude: e.longitude,
+          radius: e.radius,
+          entityType: e.type,
+          companyType: e.type === 'aterros' ? 'Aterro/Polo' : e.type === 'clientes' ? 'Cliente' : 'Técnico'
+      }));
+  }, [unifiedEntries]);
 
-  const closeEditModal = () => {
-      setIsEditModalOpen(false);
-      setCurrentEditLocation(null);
-  };
+  // Stats
+  const stats = useMemo(() => {
+      return {
+          aterros: unifiedEntries.filter(e => e.type === 'aterros').length,
+          clientes: unifiedEntries.filter(e => e.type === 'clientes').length,
+          tecnicos: unifiedEntries.filter(e => e.type === 'tecnicos').length
+      }
+  }, [unifiedEntries]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 text-gray-900 overflow-hidden font-sans">
@@ -99,140 +121,56 @@ const App: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg shadow-sm transition-all hover:shadow-md"
         >
             <Settings2 className="w-4 h-4" />
-            <span>Gerenciar Empresas</span>
+            <span>Gerenciar Operação</span>
         </button>
       </header>
 
-      {/* Main Content: Map Always Visible */}
+      {/* Main Content: Map */}
       <main className="flex-1 relative z-0">
-        <MapView locations={entries} />
+        <MapView locations={mapLocations} />
         
-        {/* Floating Stat Card (Updated Position and Text) */}
-        <div className="absolute top-4 right-4 z-[400] bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-gray-200 pointer-events-none">
-            <div className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-1">LOCAIS ATIVOS</div>
-            <div className="text-2xl font-bold text-gray-900">{entries.length}</div>
+        {/* Floating Stat Card */}
+        <div className="absolute bottom-6 right-4 z-[400] bg-white/90 backdrop-blur-sm p-4 rounded-lg shadow-lg border border-gray-200 pointer-events-none min-w-[180px]">
+            <div className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-2 pb-1 border-b">REGISTROS ATIVOS</div>
+            <div className="flex flex-col gap-1 text-sm font-medium text-gray-800">
+                <div className="flex justify-between"><span>Aterros:</span> <span>{stats.aterros}</span></div>
+                <div className="flex justify-between"><span>Clientes:</span> <span>{stats.clientes}</span></div>
+                <div className="flex justify-between"><span>Técnicos:</span> <span>{stats.tecnicos}</span></div>
+            </div>
         </div>
       </main>
 
-      {/* Management Modal (Full Screen / Large) */}
+      {/* Management Modal */}
       {isManagerOpen && (
         <div className="fixed inset-0 z-50 flex flex-col bg-gray-50/50 backdrop-blur-sm">
             <div className="absolute inset-0 bg-black/20" onClick={() => setIsManagerOpen(false)} />
             
             <div className="flex-1 m-4 md:m-8 bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 relative">
                 {/* Modal Header */}
-                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white">
-                    <div>
-                        <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                            <Table2 className="w-5 h-5 text-gray-400" />
-                            Gestão de Empresas
-                        </h2>
-                        <p className="text-sm text-gray-500">Adicione, edite e configure as áreas de atuação dos seus pontos.</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                         <button
-                            onClick={handleAddEntry}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 text-sm font-medium rounded-md transition-colors"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Nova Empresa
-                        </button>
-                        <div className="h-8 w-px bg-gray-200 mx-1"></div>
-                        <button 
-                            onClick={() => setIsManagerOpen(false)}
-                            className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-700 transition-colors"
-                        >
+                <div className="bg-white border-b border-gray-100 px-6 py-4 flex justify-between items-center shrink-0">
+                    <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <Table2 className="w-5 h-5 text-gray-400" />
+                        Gestão Operacional Integrada
+                    </h2>
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => setIsManagerOpen(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-700">
                             <X size={20} />
                         </button>
                     </div>
                 </div>
 
-                {/* Modal Content */}
-                <div className="flex-1 overflow-hidden bg-gray-50">
+                {/* Content */}
+                <div className="flex-1 overflow-hidden bg-white relative flex flex-col">
+                    {loading && <div className="absolute inset-0 z-50 bg-white/50 flex items-center justify-center"><Loader2 className="animate-spin text-brand-600"/></div>}
                     <DataTable 
-                        entries={entries}
-                        onUpdate={handleUpdateEntry}
-                        onRemove={handleRemoveEntry}
-                        onCepBlur={handleCepBlur}
-                        onEdit={openEditModal}
+                        entries={unifiedEntries}
+                        onSave={handleSaveOrUpdate}
+                        onDelete={handleRemoveEntry}
+                        onCepBlur={handleCepLookup}
                     />
-                </div>
-                
-                {/* Modal Footer */}
-                <div className="px-6 py-3 border-t border-gray-200 bg-gray-50 text-xs text-gray-500 flex justify-between items-center">
-                    <span>As alterações são salvas automaticamente no banco de dados local.</span>
-                    <span>Total: {entries.length} registros</span>
                 </div>
             </div>
         </div>
-      )}
-
-      {/* Single Entry Edit Modal */}
-      {isEditModalOpen && currentEditLocation && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeEditModal} />
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-lg relative z-10 overflow-hidden animate-in fade-in zoom-in-95">
-                  <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-                      <h3 className="font-bold text-gray-800">Editar Empresa</h3>
-                      <button onClick={closeEditModal} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
-                  </div>
-                  <div className="p-6 space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                              <label className="text-xs font-semibold text-gray-500">Nome</label>
-                              <input 
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 outline-none"
-                                value={currentEditLocation.name}
-                                onChange={e => handleUpdateEntry(currentEditLocation.id, 'name', e.target.value)}
-                              />
-                          </div>
-                           <div className="space-y-1">
-                              <label className="text-xs font-semibold text-gray-500">Tipo</label>
-                              <input 
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 outline-none"
-                                value={currentEditLocation.companyType}
-                                onChange={e => handleUpdateEntry(currentEditLocation.id, 'companyType', e.target.value)}
-                              />
-                          </div>
-                      </div>
-
-                      <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-500">Descrição / Endereço</label>
-                          <textarea 
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 outline-none resize-none"
-                            rows={3}
-                            value={currentEditLocation.description}
-                            onChange={e => handleUpdateEntry(currentEditLocation.id, 'description', e.target.value)}
-                          />
-                      </div>
-
-                       <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                              <label className="text-xs font-semibold text-gray-500">CEP</label>
-                              <input 
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 outline-none"
-                                value={currentEditLocation.cep}
-                                onChange={e => handleUpdateEntry(currentEditLocation.id, 'cep', e.target.value)}
-                                onBlur={e => handleCepBlur(currentEditLocation.id, e.target.value)}
-                              />
-                          </div>
-                           <div className="space-y-1">
-                              <label className="text-xs font-semibold text-gray-500">Raio (km)</label>
-                              <input 
-                                type="number"
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 outline-none"
-                                value={currentEditLocation.radius}
-                                onChange={e => handleUpdateEntry(currentEditLocation.id, 'radius', Number(e.target.value))}
-                              />
-                          </div>
-                      </div>
-                  </div>
-                  <div className="px-6 py-4 bg-gray-50 flex justify-end gap-2">
-                      <button onClick={closeEditModal} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-lg">Cancelar</button>
-                      <button onClick={closeEditModal} className="px-4 py-2 text-sm bg-brand-600 text-white hover:bg-brand-700 rounded-lg">Concluir</button>
-                  </div>
-              </div>
-          </div>
       )}
     </div>
   );

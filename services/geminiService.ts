@@ -40,6 +40,7 @@ export const generateMockLocations = async (count: number = 5): Promise<Location
       cep: item.cep,
       latitude: item.latitude,
       longitude: item.longitude,
+      radius: 0,
       isAutoFilled: true
     }));
 
